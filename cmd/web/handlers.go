@@ -1,11 +1,13 @@
 package main
 
 import (
+	"errors"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"text/template"
+
+	"snippetbox.tanvirRifat.io/internal/models"
 )
 
 // using object or struct handler
@@ -21,7 +23,16 @@ import (
 
  
 
-func home(w http.ResponseWriter, r *http.Request){
+func (app *application) home(w http.ResponseWriter, r *http.Request){
+	w.Header().Add("Server","Go")
+
+
+
+snippets, err := app.snippets.Latest()
+if err != nil {
+ app.serverError(w,r,err)
+}
+
 	files:= []string{
 		"./ui/html/base.tmpl.html",
 		"./ui/html/partials/nav.tmpl.html",
@@ -30,47 +41,95 @@ func home(w http.ResponseWriter, r *http.Request){
 
 	t,err:= template.ParseFiles(files...)
 
+	
+
 	if err!=nil{
-		log.Print(err.Error())
-		http.Error(w,"Internal Server Error",http.StatusInternalServerError)
+		app.serverError(w,r,err)
 		return
 	}
 
-	err = t.ExecuteTemplate(w,"base",nil)
+	
+
+	data:= templateData{
+		Snippets: &snippets,
+	}
+
+	err = t.ExecuteTemplate(w,"base",data)
 
 	if err!=nil{
-		log.Print(err.Error())
-		http.Error(w,"Internal Server Error",http.StatusInternalServerError)
-		return
+		 app.serverError(w,r,err)
+		 return
 	}
+
 
 
 }
 
 
-func snippetView(w http.ResponseWriter, r *http.Request){
-	// convert string id to number using strconv.Atoi
-	id,err:= strconv.Atoi(r.PathValue("id"))
+func (app *application) snippetView(w http.ResponseWriter, r *http.Request) {
+id, err := strconv.Atoi(r.PathValue("id"))
+if err != nil || id < 1 {
+http.NotFound(w, r)
+return
+}
 
-	if err != nil || id < 1 {
-		http.NotFound(w,r)
-		return
-	}
+snippet, err := app.snippets.Get(id)
+if err != nil {
+if errors.Is(err, models.ErrNoRecord) {
+http.NotFound(w, r)
+} else {
+	app.serverError(w,r,err)
 
-	msg:= fmt.Sprintf("Displaying details of snippet %d",id)
-	w.Write([]byte(msg))
+}
+return
+}
+
+files:= []string{
+		"./ui/html/base.tmpl.html",
+		"./ui/html/partials/nav.tmpl.html",
+		"./ui/html/pages/view.tmpl.html",
+}
+
+t,err:= template.ParseFiles(files...)
+
+if err!=nil{
+	app.serverError(w,r,err)
+	return
+}
+
+data := templateData{
+Snippet: &snippet,
+}
+err = t.ExecuteTemplate(w,"base",data)
+
+if err!=nil{
+	app.serverError(w,r,err)
+	return
+}
+
+
 
 
 }
 
-func snippetCreate(w http.ResponseWriter, r *http.Request){
+func (app *application) snippetCreate(w http.ResponseWriter, r *http.Request){
 	w.Write([]byte("Create a new snippet"))
 }
 
-func snippetCreatePost(w http.ResponseWriter, r *http.Request){
+func (app *application) snippetCreatePost(w http.ResponseWriter, r *http.Request){
 
-	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("Create a new snippet for posting..."))
+	title := "O snail"
+content := "O snail\nClimb Mount Fuji,\nBut slowly, slowly!\n\n– Kobayashi Issa"
+expires := 7
+// Pass the data to the SnippetModel.Insert() method, receiving the
+// ID of the new record back.
+id, err := app.snippets.Insert(title, content, expires)
+if err != nil {
+	app.serverError(w,r,err)
+return
+}
+// Redirect the user to the relevant page for the snippet.
+http.Redirect(w, r, fmt.Sprintf("/snippet/view/%d", id), http.StatusSeeOther)
 }
 
  
